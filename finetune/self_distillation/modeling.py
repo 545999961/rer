@@ -1,6 +1,5 @@
 import logging
 import random
-import sys
 from dataclasses import dataclass
 from typing import Dict, Optional, List, Union
 
@@ -8,7 +7,6 @@ import torch
 from torch import nn, Tensor
 from transformers import AutoTokenizer
 from transformers.file_utils import ModelOutput
-import torch.distributed as dist
 
 logger = logging.getLogger(__name__)
 
@@ -67,7 +65,6 @@ class BiEncoderModel(nn.Module):
         self.model.enable_input_require_grads(**kwargs)
 
     def encode(self, features, query_lengths, prompt_lengths):
-        # input('continue?')
         if features is None:
             return None
 
@@ -79,7 +76,6 @@ class BiEncoderModel(nn.Module):
                              compress_layer=[random.choice([0, 1]) * i for i in self.compress_layers],
                              compress_ratio=random.choice(self.compress_ratios),
                              cutoff_layers=self.cutoff_layers,
-                             # cutoff_layers=random.choice([9, 12, 15, 18]),
                              query_lengths=query_lengths,
                              prompt_lengths=prompt_lengths)
         if self.config.layer_wise:
@@ -87,32 +83,9 @@ class BiEncoderModel(nn.Module):
             for i in range(len(outputs.logits)):
                 logits = last_logit_pool(outputs.logits[i], outputs.attention_masks[i])
                 scores.append(logits)
-            # if dist.get_rank() == 0:
-            #     print(outputs.attention_masks)
-            #     print(scores)
-            #     print(outputs.logits)
-            #     print(self.model.lm_head[0].linear_head.weight)
-            #     print(self.yes_loc)
-            # sys.exit()
         else:
             logits = last_logit_pool(outputs.logits, outputs.attention_masks)
-            # print(logits.shape)
-            # d = dict()
             scores = logits[:, self.yes_loc]
-            # if dist.get_rank() == 0:
-            #     print(outputs.attention_masks)
-            #     d['outputs'] = outputs
-            #     d['lm_head'] = self.model.lm_head.weight
-            #     d['loc'] = self.yes_loc
-            #     with open('test.pkl', 'wb') as f:
-            #         import pickle
-            #         pickle.dump(d, f)
-            #     print(scores)
-            #     print(outputs.logits[:,:,self.yes_loc])
-            #     print(self.model.lm_head.weight[self.yes_loc])
-            #     print(self.yes_loc)
-            # sys.exit()
-        # print(scores)
         return scores
 
     def forward(self,
@@ -120,8 +93,6 @@ class BiEncoderModel(nn.Module):
                 query_lengths: List[int] = None,
                 prompt_lengths: List[int] = None,
                 teacher_scores: List[int] = None):
-        # if dist.get_rank() == 0:
-        #     print(self.tokenizer.decode(pair['input_ids'][0]))
         ranker_logits = self.encode(pair, query_lengths, prompt_lengths)  # (batch_size * num, dim)
 
         if self.training:
