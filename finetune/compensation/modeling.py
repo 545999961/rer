@@ -127,56 +127,11 @@ class BiEncoderModel(nn.Module):
         if self.training:
             if isinstance(ranker_logits, List):
                 loss = 0
-                if 'distill' in self.train_method:
-                    teacher_scores = torch.tensor(teacher_scores, device=ranker_logits[0].device)
-                    teacher_scores = teacher_scores.view(self.train_batch_size, -1)
-                    teacher_targets = torch.softmax(teacher_scores.detach(), dim=-1)
-                else:
-                    teacher_scores = ranker_logits[-1].view(self.train_batch_size, -1)
-                    teacher_targets = torch.softmax(teacher_scores.detach(), dim=-1)
 
-                teacher_targets_new = None
                 for idx, logits in enumerate(ranker_logits[::-1]):
                     grouped_logits = logits.view(self.train_batch_size, -1)
-                    if 'point' in self.train_method:
-                        target = torch.zeros(grouped_logits.shape, device=grouped_logits.device, dtype=torch.float32)
-                        for i in range(self.train_batch_size):
-                            target[i][0] = 1
-                        # target = target.detach()
-                        # print(grouped_logits, target)
-                        loss = self.pointCE(grouped_logits, target)
-                    else:
-                        target = torch.zeros(self.train_batch_size, device=grouped_logits.device, dtype=torch.long)
-                        loss += self.compute_loss(grouped_logits, target)
-                    if 'distill' in self.train_method:
-                        student_scores = logits.view(
-                            self.train_batch_size,
-                            -1
-                        )
-                        if 'teacher' in self.train_method:
-                            loss += - torch.mean(
-                                torch.sum(torch.log_softmax(student_scores, dim=-1) * teacher_targets, dim=-1))
-                        elif idx == 0:
-                            loss += - torch.mean(
-                                torch.sum(torch.log_softmax(student_scores, dim=-1) * teacher_targets, dim=-1))
-                            teacher_targets_new = torch.softmax(student_scores.detach(), dim=-1)
-                            continue
-
-                        if 'final_layer' in self.train_method:
-                            if teacher_targets_new is not None:
-                                loss += - torch.mean(
-                                    torch.sum(torch.log_softmax(student_scores, dim=-1) * teacher_targets_new, dim=-1))
-                        elif 'last_layer' in self.train_method:
-                            if teacher_targets_new is not None:
-                                loss += - torch.mean(
-                                    torch.sum(torch.log_softmax(student_scores, dim=-1) * teacher_targets_new, dim=-1))
-                            teacher_targets_new = torch.softmax(student_scores.detach(), dim=-1)
-                        elif 'fix_layer' in self.train_method:
-                            if teacher_targets_new is not None:
-                                loss += - torch.mean(
-                                    torch.sum(torch.log_softmax(student_scores, dim=-1) * teacher_targets_new, dim=-1))
-                            if idx % 8 == 0:
-                                teacher_targets_new = torch.softmax(student_scores.detach(), dim=-1)
+                    target = torch.zeros(self.train_batch_size, device=grouped_logits.device, dtype=torch.long)
+                    loss += self.compute_loss(grouped_logits, target)
 
             else:
                 grouped_logits = ranker_logits.view(self.train_batch_size, -1)
