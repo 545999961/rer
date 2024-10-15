@@ -88,12 +88,40 @@ class BiEncoderModel(nn.Module):
             scores = logits[:, self.yes_loc]
         return scores
 
+    def encode_full(self, features, query_lengths, prompt_lengths):
+        if features is None:
+            return None
+
+        outputs = self.model(input_ids=features['input_ids'],
+                             attention_mask=features['attention_mask'],
+                             position_ids=features['position_ids'] if 'position_ids' in features.keys() else None,
+                             output_hidden_states=True,
+                             #  compress_layer=random.choice(self.compress_layers),
+                             compress_layer=[random.choice([0, 1]) * i for i in self.compress_layers],
+                             compress_ratio=1,
+                             cutoff_layers=self.cutoff_layers,
+                             query_lengths=query_lengths,
+                             prompt_lengths=prompt_lengths)
+        if self.config.layer_wise:
+            scores = []
+            for i in range(len(outputs.logits)):
+                logits = last_logit_pool(outputs.logits[i], outputs.attention_masks[i])
+                scores.append(logits)
+        else:
+            logits = last_logit_pool(outputs.logits, outputs.attention_masks)
+            scores = logits[:, self.yes_loc]
+        return scores
+
     def forward(self,
                 pair: Union[Dict[str, Tensor], List[Dict[str, Tensor]]] = None,
                 query_lengths: List[int] = None,
                 prompt_lengths: List[int] = None,
                 teacher_scores: List[int] = None):
         ranker_logits = self.encode(pair, query_lengths, prompt_lengths)  # (batch_size * num, dim)
+        if '_layer' in self.train_method:
+            full_ranker_logits = self.encode_full(pair, query_lengths, prompt_lengths)
+        else:
+            full_ranker_logits = True
 
         if self.training:
             if isinstance(ranker_logits, List):
@@ -116,13 +144,21 @@ class BiEncoderModel(nn.Module):
                             self.train_batch_size,
                             -1
                         )
+                        if full_ranker_logits is not None:
+                            student_scores_full = full_ranker_logits[::-1][idx].view(
+                                self.train_batch_size,
+                                -1
+                            )
+                        else:
+                            student_scores_full = None
+
                         if 'teacher' in self.train_method:
                             loss += - torch.mean(
                                 torch.sum(torch.log_softmax(student_scores, dim=-1) * teacher_targets, dim=-1))
-                        elif idx == 0:
+                        elif idx == 0 and student_scores_full is not None:
                             loss += - torch.mean(
                                 torch.sum(torch.log_softmax(student_scores, dim=-1) * teacher_targets, dim=-1))
-                            teacher_targets_new = torch.softmax(student_scores.detach(), dim=-1)
+                            teacher_targets_new = torch.softmax(student_scores_full.detach(), dim=-1)
                             continue
 
                         if 'final_layer' in self.train_method:
@@ -133,13 +169,13 @@ class BiEncoderModel(nn.Module):
                             if teacher_targets_new is not None:
                                 loss += - torch.mean(
                                 torch.sum(torch.log_softmax(student_scores, dim=-1) * teacher_targets_new, dim=-1))
-                            teacher_targets_new = torch.softmax(student_scores.detach(), dim=-1)
+                            teacher_targets_new = torch.softmax(student_scores_full.detach(), dim=-1)
                         elif 'fix_layer' in self.train_method:
                             if teacher_targets_new is not None:
                                 loss += - torch.mean(
                                 torch.sum(torch.log_softmax(student_scores, dim=-1) * teacher_targets_new, dim=-1))
                             if idx % 8 == 0:
-                                teacher_targets_new = torch.softmax(student_scores.detach(), dim=-1)
+                                teacher_targets_new = torch.softmax(student_scores_full.detach(), dim=-1)
 
             else:
                 grouped_logits = ranker_logits.view(self.train_batch_size, -1)
