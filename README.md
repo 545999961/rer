@@ -89,7 +89,6 @@ run.py \
 --train_data ${train_data_path} \
 --learning_rate 2e-5 \
 --num_train_epochs 1 \
---max_steps 200 \
 --per_device_train_batch_size 4 \
 --gradient_accumulation_steps 4 \
 --dataloader_drop_last True \
@@ -141,7 +140,6 @@ run.py \
 --train_data ${train_data_path} \
 --learning_rate 2e-5 \
 --num_train_epochs 1 \
---max_steps 200 \
 --per_device_train_batch_size 4 \
 --gradient_accumulation_steps 4 \
 --dataloader_drop_last True \
@@ -175,7 +173,7 @@ run.py \
 --finetune_type token
 ```
 
-### Usage/
+### Usage
 
 You can use Matroyshka Re-Ranker with the following code:
 
